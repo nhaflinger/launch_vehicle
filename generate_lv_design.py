@@ -62,7 +62,8 @@ ENGINES = [
     ("Raptor 2",        "Starship / Super Heavy","LOX/CH4",   350, 327, 2350, 2200, 1500,330, 32.0, "Full-flow staged combustion; 33x on Super Heavy"),
     ("Raptor Vac",      "Starship upper",        "LOX/CH4",   380, None,2200, None, 1600,330,107,   "Vacuum variant; large fixed nozzle; 3x on Starship"),
     ("BE-4",            "Vulcan / New Glenn S1", "LOX/CH4",   339, 310, 2400, 2100, 4760,134, 40.0, "Oxygen-rich staged combustion; 2x Vulcan / 7x NG 7x2 baseline"),
-    ("BE-4 Block 2",    "New Glenn Block 2 S1",  "LOX/CH4",   339, 310, 2847, 2490, 4760,134, 40.0, "Upgraded BE-4; 2,847 kN SL (640,000 lbf) with propellant subcooling; vac est. proportional; same Isp"),
+    ("BE-4 Block 2",    "New Glenn Block 2 S1",  "LOX/CH4",   339, 310, 2847, 2490, 4760,134, 40.0, "Upgraded BE-4 with subcooling; 2,847 kN SL (640,000 lbf); use with Subcooling Gain ~3.5%"),
+    ("BE-4 Block 2 (no subcool)", "New Glenn Block 2 S1", "LOX/CH4", 339, 310, 2780, 2430, 4760,134, 40.0, "Upgraded BE-4 design improvements only, no subcooling; 2,780 kN SL (625,000 lbf); use with Subcooling Gain 0%"),
     # Hypergolic
     ("AJ-10-190",       "Orion SPS / STS OMS",   "NTO/MMH",   316, None,  27, None,  118,  9, 49.0, "Pressure-fed; restartable; long heritage"),
     ("Vikas",           "PSLV / GSLV S2",        "NTO/UDMH",  293, 270,  800,  725,  634, 58, 16.0, "Indian engine; Ariane Viking derivative"),
@@ -608,7 +609,7 @@ def build_design(wb):
     drag_loss_row      = mission_rows["Drag Loss"]
     grav_coeff_row     = mission_rows["Gravity Loss Coefficient"]
     gto_orb_dv_row     = mission_rows["GTO Orbital ΔV"]
-    n_stages_row       = mission_rows["Number of Stages"]
+
 
     # LEO and GTO mission ΔV will be calculated after stage config (needs TWR)
     # placeholders assigned after stage config loop
@@ -630,6 +631,8 @@ def build_design(wb):
         ("Propellant Mass (nominal)","kg",    [770000,          75000,          ""]),
         ("Subcooling Gain (%)",      "%",     [3.5,             0.0,            0.0]),
         ("Effective Propellant Mass","kg",    None),   # nominal × (1 + gain/100)
+        ("Recovery ΔV Reserve (m/s)","m/s",  [500,         0,          0]),  # 0 = expendable
+        ("Recovery Propellant Reserved","kg", None),   # deferred: eff_dry*(exp(ΔV/vac_isp/g0)-1)
         ("LEO ΔV Fraction",          "0-1",  [0.597,       0.403,     ""]),
         ("LEO ΔV Allocation",        "m/s",  None),   # fraction × calculated LEO mission ΔV
         ("Vac Isp Override",         "s",    ["",          "",        ""]),
@@ -668,6 +671,13 @@ def build_design(wb):
                 cell = style_calc(ws, r, c_val, value=formula)
                 cell.font = Font(bold=True, size=10, italic=True)
                 cell.number_format = "#,##0"
+            elif param == "Recovery Propellant Reserved":
+                # Deferred — formula depends on eff_dry_row which isn't set yet
+                cell = style_calc(ws, r, c_val, value="")
+                cell.number_format = "#,##0"
+                if not hasattr(ws, '_recovery_prop_deferred'):
+                    ws._recovery_prop_deferred = []
+                ws._recovery_prop_deferred.append((r, c_val))
             elif param == "Vac Isp (from DB)":
                 eng_cell = f"{col(c_val)}{stage_rows['Engine (from Engine DB)']}"
                 ovr_cell = f"{col(c_val)}{stage_rows['Vac Isp Override']}"
@@ -697,7 +707,7 @@ def build_design(wb):
                 val = defaults[si] if si < len(defaults) else ""
                 cell = style_input(ws, r, c_val, val)
                 cell.number_format = "#,##0" if unit in ("kg", "m/s") else "@"
-            cell.fill = PatternFill("solid", fgColor=C["calc"] if defaults is None or param in ("Vac Isp (from DB)", "SL Isp (from DB)", "Effective Isp (used)", "Effective Propellant Mass", "LEO ΔV Allocation", "GTO ΔV Allocation") else C["input"])
+            cell.fill = PatternFill("solid", fgColor=C["calc"] if defaults is None or param in ("Vac Isp (from DB)", "SL Isp (from DB)", "Effective Isp (used)", "Effective Propellant Mass", "Recovery Propellant Reserved", "LEO ΔV Allocation", "GTO ΔV Allocation") else C["input"])
 
         r += 1
 
@@ -935,6 +945,24 @@ def build_design(wb):
         cell.alignment = Alignment(horizontal="center")
         cell.number_format = "#,##0"
 
+    # ── Fill deferred Recovery Propellant Reserved formulas (needed eff_dry_row) ──
+    # Formula: eff_dry × (exp(ΔV_rec / (vac_isp × g0)) - 1)
+    # Derivation: recovery burns consume prop from a stage of mass (dry+recovery_prop),
+    # decelerating to dry mass. Rearranging rocket eq for recovery_prop:
+    #   ΔV = vac_isp·g0·ln((dry+recovery_prop)/dry)  →  recovery_prop = dry·(e^(ΔV/isp/g0)-1)
+    recovery_prop_row = stage_rows["Recovery Propellant Reserved"]
+    for (row_r, c_val) in getattr(ws, '_recovery_prop_deferred', []):
+        dv_rec_c  = f"{col(c_val)}{stage_rows['Recovery ΔV Reserve (m/s)']}"
+        vac_isp_c = f"{col(c_val)}{stage_rows['Vac Isp (from DB)']}"
+        eff_dry_c = f"{col(c_val)}{eff_dry_row}"
+        formula = (f'=IFERROR(IF({dv_rec_c}=0,0,'
+                   f'{eff_dry_c}*(EXP({dv_rec_c}/({vac_isp_c}*{G0}))-1)),0)')
+        cell = ws.cell(row_r, c_val, value=formula)
+        cell.fill = PatternFill("solid", fgColor=C["calc"])
+        cell.font = Font(size=10, italic=True)
+        cell.alignment = Alignment(horizontal="center")
+        cell.number_format = "#,##0"
+
     # ── Section: Performance ─────────────────────────────────────────────────
     r += 1
     style_sec(ws, r, 1, "PERFORMANCE CALCULATIONS", span=2 + MAX_STAGES * 3)
@@ -955,22 +983,32 @@ def build_design(wb):
     ws.cell(r, 2).alignment = Alignment(horizontal="center")
     max_payload_row = r
     adapter_cell = f"B{adapter_row}"
-    n_stages_cell = f"B{n_stages_row}"
 
-    # Build per-stage payload formula: prop/(EXP(dv/(isp*g0))-1) - dry - adapter
+    # Build per-stage payload formula (reusability-aware):
+    #   ascent_prop = effective_prop - recovery_reserved
+    #   eff_dry_asc = eff_dry + recovery_reserved  (recovery prop is dead weight during ascent)
+    #   m_payload = ascent_prop/(e^(ΔV/Isp·g₀)−1) − eff_dry_asc − adapter
+    #
+    # Payload is solved from the LAST active stage (nested IF on n_stages).
+    # Recovery reserve on lower stages reduces their actual ΔV (shown in verification rows).
+    # To model the reusability payload penalty: reduce the lower stage ΔV fraction so the
+    # upper stage must cover more, which lowers payload through the last-stage formula.
     stage_payload_formulas = []
     for si in range(MAX_STAGES):
-        c_val    = 5 + si * 3
-        prop_c   = f"{col(c_val)}{prop_mass_row}"
-        isp_c    = f"{col(c_val)}{stage_rows['Effective Isp (used)']}"
-        dv_c     = f"{col(c_val)}{dv_alloc_row}"
-        dry_c    = f"{col(c_val)}{eff_dry_row}"
-        f = (f"IFERROR({prop_c}/(EXP({dv_c}/({isp_c}*{G0}))-1)"
-             f"-{dry_c}-{adapter_cell}, \"\")")
+        c_val       = 5 + si * 3
+        prop_c      = f"{col(c_val)}{prop_mass_row}"
+        rec_c       = f"{col(c_val)}{recovery_prop_row}"
+        isp_c       = f"{col(c_val)}{stage_rows['Effective Isp (used)']}"
+        dv_c        = f"{col(c_val)}{dv_alloc_row}"
+        dry_c       = f"{col(c_val)}{eff_dry_row}"
+        ascent_prop = f"({prop_c}-{rec_c})"
+        eff_dry_asc = f"({dry_c}+{rec_c})"
+        f = (f"IFERROR({ascent_prop}/(EXP({dv_c}/({isp_c}*{G0}))-1)"
+             f"-{eff_dry_asc}-{adapter_cell}, \"\")")
         stage_payload_formulas.append(f)
 
     # Select payload from last active stage via nested IF on n_stages
-    # IF(n=3, stage3_formula, IF(n=2, stage2_formula, stage1_formula))
+    n_stages_cell = f"B{mission_rows['Number of Stages']}"
     nested = stage_payload_formulas[0]
     for si in range(1, MAX_STAGES):
         nested = f"IF({n_stages_cell}>={si+1},{stage_payload_formulas[si]},{nested})"
@@ -980,7 +1018,7 @@ def build_design(wb):
     cell.font = Font(bold=True, size=12, italic=True)
     cell.number_format = "#,##0"
     cell.fill = PatternFill("solid", fgColor=C["pos"])
-    note_cell = ws.cell(r, 3, value="← Solved from last stage: m_payload = prop/(e^(ΔV/Isp·g₀)−1) − dry − adapter")
+    note_cell = ws.cell(r, 3, value="← Solved from last stage: m_payload = (prop−rec)/(e^(ΔV/Isp·g₀)−1) − (dry+rec) − adapter  |  Recovery penalty: lower stage's actual ΔV drops (see verification); reduce that stage's ΔV fraction to propagate penalty to payload")
     note_cell.font = Font(size=8, italic=True, color="444444")
     ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=4 + MAX_STAGES * 3 - 1)
     r += 1
@@ -1002,24 +1040,26 @@ def build_design(wb):
     gto_dv_alloc_row = stage_rows["GTO ΔV Allocation"]
     gto_stage_payload_formulas = []
     for si in range(MAX_STAGES):
-        c_val  = 5 + si * 3
-        prop_c = f"{col(c_val)}{prop_mass_row}"
-        isp_c  = f"{col(c_val)}{stage_rows['Effective Isp (used)']}"
-        dv_c   = f"{col(c_val)}{gto_dv_alloc_row}"
-        dry_c  = f"{col(c_val)}{eff_dry_row}"
-        f = (f"IFERROR({prop_c}/(EXP({dv_c}/({isp_c}*{G0}))-1)"
-             f"-{dry_c}-{adapter_cell}, \"\")")
+        c_val       = 5 + si * 3
+        prop_c      = f"{col(c_val)}{prop_mass_row}"
+        rec_c       = f"{col(c_val)}{recovery_prop_row}"
+        isp_c       = f"{col(c_val)}{stage_rows['Effective Isp (used)']}"
+        dv_c        = f"{col(c_val)}{gto_dv_alloc_row}"
+        dry_c       = f"{col(c_val)}{eff_dry_row}"
+        ascent_prop = f"({prop_c}-{rec_c})"
+        eff_dry_asc = f"({dry_c}+{rec_c})"
+        f = (f"IFERROR({ascent_prop}/(EXP({dv_c}/({isp_c}*{G0}))-1)"
+             f"-{eff_dry_asc}-{adapter_cell}, \"\")")
         gto_stage_payload_formulas.append(f)
 
     gto_nested = gto_stage_payload_formulas[0]
     for si in range(1, MAX_STAGES):
         gto_nested = f"IF({n_stages_cell}>={si+1},{gto_stage_payload_formulas[si]},{gto_nested})"
-
     cell = style_calc(ws, r, 2, value=f"={gto_nested}")
     cell.font = Font(bold=True, size=12, italic=True)
     cell.number_format = "#,##0"
     cell.fill = PatternFill("solid", fgColor=C["pos"])
-    note_cell = ws.cell(r, 3, value="← Solved from last stage using GTO ΔV allocations: m_payload = prop/(e^(ΔV/Isp·g₀)−1) − dry − adapter")
+    note_cell = ws.cell(r, 3, value="← MIN across all stage constraints using GTO ΔV allocations: capacity_i = (prop−rec)/(e^(ΔV/Isp·g₀)−1) − (dry+rec) − gross_above − adapter")
     note_cell.font = Font(size=8, italic=True, color="444444")
     ws.merge_cells(start_row=r, start_column=3, end_row=r, end_column=4 + MAX_STAGES * 3 - 1)
     r += 1
@@ -1042,7 +1082,8 @@ def build_design(wb):
         cell.number_format = "#,##0"
     r += 1
 
-    # Burnout mass (m_f): dry of this stage + all stages above + max_payload + adapter
+    # Burnout mass (m_f): dry + recovery_reserved (still onboard at MECO) + stages above + payload
+    # For expendable stages, recovery_reserved = 0, so formula is unchanged.
     ws.cell(r, 1, value="Burnout Mass m_f").font = Font(size=10)
     ws.cell(r, 1).alignment = Alignment(horizontal="left", indent=1)
     ws.cell(r, 1).fill = PatternFill("solid", fgColor=C["ltgray"])
@@ -1054,21 +1095,24 @@ def build_design(wb):
     for si in range(MAX_STAGES):
         c_val    = 5 + si * 3
         dry_cell = f"{col(c_val)}{eff_dry_row}"
+        rec_cell = f"{col(c_val)}{recovery_prop_row}"
         above_gross = "+".join(
             f"IFERROR({col(5 + j * 3)}{gross_row}*1,0)"
             for j in range(si + 1, MAX_STAGES)
         )
         if above_gross:
-            formula = (f"=IFERROR({dry_cell}+{above_gross}"
+            formula = (f"=IFERROR({dry_cell}+{rec_cell}+{above_gross}"
                        f"+{payload_calc_cell}+{adapter_cell}, \"\")")
         else:
-            formula = (f"=IFERROR({dry_cell}"
+            formula = (f"=IFERROR({dry_cell}+{rec_cell}"
                        f"+{payload_calc_cell}+{adapter_cell}, \"\")")
         cell = style_calc(ws, r, c_val, value=formula)
         cell.number_format = "#,##0"
     r += 1
 
-    # Initial mass m_0: burnout + propellant
+    # Initial mass m_0: burnout + ascent propellant
+    # burnout already includes recovery_reserved (still onboard at MECO), so we add only
+    # the ascent portion (effective_prop - recovery_reserved) to avoid double-counting.
     ws.cell(r, 1, value="Initial Mass m_0 (at ignition)").font = Font(size=10)
     ws.cell(r, 1).alignment = Alignment(horizontal="left", indent=1)
     ws.cell(r, 1).fill = PatternFill("solid", fgColor=C["ltgray"])
@@ -1077,9 +1121,10 @@ def build_design(wb):
     ws.cell(r, 2).alignment = Alignment(horizontal="center")
     m0_row = r
     for si in range(MAX_STAGES):
-        c_val = 5 + si * 3
-        formula = (f"=IFERROR({col(c_val)}{burnout_row}"
-                   f"+{col(c_val)}{prop_mass_row}, \"\")")
+        c_val    = 5 + si * 3
+        rec_cell = f"{col(c_val)}{recovery_prop_row}"
+        formula  = (f"=IFERROR({col(c_val)}{burnout_row}"
+                    f"+{col(c_val)}{prop_mass_row}-{rec_cell}, \"\")")
         cell = style_calc(ws, r, c_val, value=formula)
         cell.number_format = "#,##0"
     r += 1
@@ -1262,9 +1307,16 @@ def build_readme(wb):
         ("      • Yellow cells in the subsystem section can be manually overridden with known values.", False),
         ("      • Use 'Dry Mass Override' if you have a known dry mass (e.g. from a reference vehicle).", False),
         ("", False),
-        ("5.  Performance section calculates automatically:", False),
+        ("5.  For reusable stages (e.g. New Glenn S1, Falcon 9 S1), enter a Recovery ΔV Reserve:", False),
+        ("      • This is the total ΔV budget for recovery burns (boost-back + entry + landing).", False),
+        ("      • Typical values: ~750 m/s for RTLS (return-to-launch-site), ~500 m/s for ASDS (drone ship).", False),
+        ("      • The tool computes Recovery Propellant Reserved = dry_mass × (e^(ΔV/Isp/g₀) − 1).", False),
+        ("      • This propellant is treated as dead weight during ascent (still onboard at MECO).", False),
+        ("      • Set to 0 for expendable stages — no penalty applied.", False),
+        ("", False),
+        ("6.  Performance section calculates automatically:", False),
         ("      • Delta-V per stage via Tsiolkovsky equation: ΔV = Isp × g₀ × ln(m₀/m_f)", False),
-        ("      • Burnout mass accounts for all upper stages + payload + payload adapter.", False),
+        ("      • Burnout mass includes recovery-reserved propellant (still onboard at MECO) for reusable stages.", False),
         ("      • TWR uses sea-level thrust for Stage 1, vacuum thrust for upper stages.", False),
         ("", False),
         ("TIPS & RULES OF THUMB", True),
@@ -1276,6 +1328,9 @@ def build_readme(wb):
         ("• LOX/LH2 gives the highest Isp (~450s) but low density means large, heavy tanks.", False),
         ("• LOX/RP-1 gives good density and SL performance; workhorse of most first stages.", False),
         ("• LOX/CH4 is the emerging choice for reusability; good Isp + density balance.", False),
+        ("• Reusable first stages carry a payload penalty: ~30–40% less to LEO vs expendable (Falcon 9 example).", False),
+        ("• Recovery ΔV budget: RTLS ~750 m/s (boost-back ~300 + entry ~200 + landing ~250);", False),
+        ("  ASDS (drone ship) ~450–500 m/s (no boost-back; entry ~200 + landing ~250).", False),
         ("", False),
         ("REFERENCE TABS", True),
         ("• Engine DB:   Real engine performance data for 35+ engines. Add your own rows at the bottom.", False),
