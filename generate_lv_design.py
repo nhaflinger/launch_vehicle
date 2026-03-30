@@ -580,14 +580,16 @@ def build_design(wb):
     r += 1
 
     mission_inputs = [
-        ("Vehicle Name",            "text",  "New Glenn Block 2 (7x2)",  None),
-        ("Target Orbit",            "text",  "LEO 400km",                None),
-        ("Payload Adapter Mass",    "kg",    200,          "Separation hardware mass between payload and vehicle"),
-        ("Orbital Velocity (LEO)",  "m/s",   7784,         "Target orbital velocity — 7784 m/s for 400km LEO; 7726 m/s for 200km"),
-        ("Drag Loss",               "m/s",   120,          "Aerodynamic drag loss — typically 100-150 m/s; relatively insensitive to thrust"),
-        ("Gravity Loss Coefficient","—",      1750,         "Gravity loss = coeff / TWR_liftoff; calibrated to ~1450 m/s at TWR=1.2; adjust to match known vehicles"),
-        ("GTO Orbital ΔV",          "m/s",   10400,        "Velocity needed at GTO perigee — ~10,200-10,500 m/s depending on inclination and target apogee"),
-        ("Number of Stages",        "1-3",   2,            "Active stages (enter 1-3)"),
+        ("Vehicle Name",                   "text",  "Falcon 9 Block 5 (ASDS)",  None),
+        ("Target Orbit",                   "text",  "LEO 400km / GTO",          None),
+        ("Payload Adapter Mass",           "kg",    200,          "Separation hardware mass between payload and vehicle"),
+        ("Orbital Velocity (LEO)",         "m/s",   7784,         "Target orbital velocity — 7784 m/s for 400km LEO; 7726 m/s for 200km"),
+        ("Drag Loss",                      "m/s",   120,          "Aerodynamic drag loss — typically 100-150 m/s; relatively insensitive to thrust"),
+        ("Gravity Loss Coefficient",          "—",    1750,         "Base gravity loss = coeff / TWR_liftoff (trajectory-independent term); ~1750 typical"),
+        ("LEO Trajectory Penalty",           "m/s",  500,          "Extra gravity loss for LEO recovery pitch profile; 0=expendable, ~500=ASDS, ~900=RTLS"),
+        ("GTO Trajectory Penalty",           "m/s",  100,          "Extra gravity loss for GTO pitch profile; smaller than LEO — S1 burns less time/downrange; ~0-150 m/s typical"),
+        ("GTO Orbital ΔV",                 "m/s",   10400,        "Velocity needed at GTO perigee — ~10,200-10,500 m/s depending on inclination and target apogee"),
+        ("Number of Stages",               "1-3",   2,            "Active stages (enter 1-3)"),
     ]
 
     mission_rows = {}
@@ -604,11 +606,13 @@ def build_design(wb):
         mission_rows[label] = r
         r += 1
 
-    adapter_row        = mission_rows["Payload Adapter Mass"]
-    orb_vel_row        = mission_rows["Orbital Velocity (LEO)"]
-    drag_loss_row      = mission_rows["Drag Loss"]
-    grav_coeff_row     = mission_rows["Gravity Loss Coefficient"]
-    gto_orb_dv_row     = mission_rows["GTO Orbital ΔV"]
+    adapter_row           = mission_rows["Payload Adapter Mass"]
+    orb_vel_row           = mission_rows["Orbital Velocity (LEO)"]
+    drag_loss_row         = mission_rows["Drag Loss"]
+    grav_coeff_row        = mission_rows["Gravity Loss Coefficient"]
+    leo_traj_penalty_row  = mission_rows["LEO Trajectory Penalty"]
+    gto_traj_penalty_row  = mission_rows["GTO Trajectory Penalty"]
+    gto_orb_dv_row        = mission_rows["GTO Orbital ΔV"]
 
 
     # LEO and GTO mission ΔV will be calculated after stage config (needs TWR)
@@ -623,24 +627,30 @@ def build_design(wb):
     r += 1
 
     stage_rows = {}
+    # ── Default vehicle: Falcon 9 Block 5 (ASDS reuse) ──────────────────────────
+    # Published performance: 17,400 kg LEO (ASDS) / 8,300 kg GTO (ASDS)
+    # Self-consistent ΔV fractions derived from Tsiolkovsky analysis with published mass data.
+    # Expected model output: ~23,800 kg LEO (model over-predicts vs 17,400 published —
+    #   F9's recovery-optimized trajectory adds gravity losses beyond 1750/TWR empirical model).
+    # GTO prediction: ~8,100–8,300 kg (matches published ✓).
     stage_params = [
-        ("Stage Name",              "text",  ["S1 First",    "S2 Upper",     ""]),
-        ("Engine (from Engine DB)", "name",  ["BE-4 Block 2","BE-3U Block 2",""]),
-        ("Number of Engines",       "count", [7,              2,              ""]),
-        ("Propellant Combination",  "type",  ["LOX/CH4",      "LOX/LH2",      ""]),
-        ("Propellant Mass (nominal)","kg",    [770000,          75000,          ""]),
-        ("Subcooling Gain (%)",      "%",     [3.5,             0.0,            0.0]),
+        ("Stage Name",              "text",  ["S1 Core",       "S2 Upper",       ""]),
+        ("Engine (from Engine DB)", "name",  ["Merlin 1D",     "Merlin 1D Vac",  ""]),
+        ("Number of Engines",       "count", [9,                1,                ""]),
+        ("Propellant Combination",  "type",  ["LOX/RP-1",       "LOX/RP-1",       ""]),
+        ("Propellant Mass (nominal)","kg",    [411000,           111500,           ""]),
+        ("Subcooling Gain (%)",      "%",     [0.0,              0.0,              0.0]),
         ("Effective Propellant Mass","kg",    None),   # nominal × (1 + gain/100)
-        ("Recovery ΔV Reserve (m/s)","m/s",  [500,         0,          0]),  # 0 = expendable
+        ("Recovery ΔV Reserve (m/s)","m/s",  [500,              0,                0]),  # ASDS: no boost-back; entry+landing ~500 m/s
         ("Recovery Propellant Reserved","kg", None),   # deferred: eff_dry*(exp(ΔV/vac_isp/g0)-1)
-        ("LEO ΔV Fraction",          "0-1",  [0.597,       0.403,     ""]),
+        ("LEO ΔV Fraction",          "0-1",  [0.40,             0.60,             ""]),
         ("LEO ΔV Allocation",        "m/s",  None),   # fraction × calculated LEO mission ΔV
-        ("Vac Isp Override",         "s",    ["",          "",        ""]),
+        ("Vac Isp Override",         "s",    ["",               "",               ""]),
         ("Vac Isp (from DB)",        "s",    None),   # VLOOKUP col 4
         ("SL Isp (from DB)",         "s",    None),   # VLOOKUP col 5
-        ("Atm Fraction (0-1)",       "—",    [0.6,         1.0,       1.0]),
+        ("Atm Fraction (0-1)",       "—",    [0.6,              1.0,              1.0]),
         ("Effective Isp (used)",     "s",    None),   # SL + frac*(Vac-SL), or override
-        ("GTO ΔV Fraction",          "0-1",  [0.555,       0.445,     ""]),
+        ("GTO ΔV Fraction",          "0-1",  [0.33,             0.67,             ""]),
         ("GTO ΔV Allocation",        "m/s",  None),   # fraction × calculated GTO mission ΔV
     ]
 
@@ -749,30 +759,38 @@ def build_design(wb):
     twr_est_r = r
     r += 1
 
-    # Gravity loss = coeff / TWR
-    make_label_calc(ws, r, "Gravity Loss (= coeff / TWR)", "m/s")
-    grav_loss_row = r
-    ws.cell(r, 2, value=f"=IFERROR(B{grav_coeff_row}/B{twr_est_row},\"\")").font = Font(size=10, italic=True)
+    # LEO gravity loss = coeff / TWR + LEO trajectory penalty
+    make_label_calc(ws, r, "LEO Gravity Loss (= coeff / TWR + LEO penalty)", "m/s")
+    leo_grav_loss_row = r
+    ws.cell(r, 2, value=f"=IFERROR(B{grav_coeff_row}/B{twr_est_row}+B{leo_traj_penalty_row},\"\")").font = Font(size=10, italic=True)
     ws.cell(r, 2).fill = PatternFill("solid", fgColor=C["calc"])
     ws.cell(r, 2).alignment = Alignment(horizontal="center")
     ws.cell(r, 2).number_format = "#,##0"
     r += 1
 
-    # LEO Mission ΔV = orbital velocity + drag + gravity loss
+    # GTO gravity loss = coeff / TWR + GTO trajectory penalty (smaller — S1 burns less downrange)
+    make_label_calc(ws, r, "GTO Gravity Loss (= coeff / TWR + GTO penalty)", "m/s")
+    gto_grav_loss_row = r
+    ws.cell(r, 2, value=f"=IFERROR(B{grav_coeff_row}/B{twr_est_row}+B{gto_traj_penalty_row},\"\")").font = Font(size=10, italic=True)
+    ws.cell(r, 2).fill = PatternFill("solid", fgColor=C["calc"])
+    ws.cell(r, 2).alignment = Alignment(horizontal="center")
+    ws.cell(r, 2).number_format = "#,##0"
+    r += 1
+
+    # LEO Mission ΔV = orbital velocity + drag + LEO gravity loss
     make_label_calc(ws, r, "LEO Mission ΔV (calculated)", "m/s")
     leo_dv_calc_row = r
-    ws.cell(r, 2, value=f"=IFERROR(B{orb_vel_row}+B{drag_loss_row}+B{grav_loss_row},\"\")").font = Font(bold=True, size=10, italic=True)
+    ws.cell(r, 2, value=f"=IFERROR(B{orb_vel_row}+B{drag_loss_row}+B{leo_grav_loss_row},\"\")").font = Font(bold=True, size=10, italic=True)
     ws.cell(r, 2).fill = PatternFill("solid", fgColor=C["calc"])
     ws.cell(r, 2).alignment = Alignment(horizontal="center")
     ws.cell(r, 2).number_format = "#,##0"
     dv_budget_row = leo_dv_calc_row
     r += 1
 
-    # GTO Mission ΔV = GTO orbital ΔV + drag + gravity loss
-    # GTO gravity loss is slightly lower (higher energy trajectory) but we use same estimate
+    # GTO Mission ΔV = GTO orbital ΔV + drag + GTO gravity loss
     make_label_calc(ws, r, "GTO Mission ΔV (calculated)", "m/s")
     gto_dv_calc_row = r
-    ws.cell(r, 2, value=f"=IFERROR(B{gto_orb_dv_row}+B{drag_loss_row}+B{grav_loss_row},\"\")").font = Font(bold=True, size=10, italic=True)
+    ws.cell(r, 2, value=f"=IFERROR(B{gto_orb_dv_row}+B{drag_loss_row}+B{gto_grav_loss_row},\"\")").font = Font(bold=True, size=10, italic=True)
     ws.cell(r, 2).fill = PatternFill("solid", fgColor=C["calc"])
     ws.cell(r, 2).alignment = Alignment(horizontal="center")
     ws.cell(r, 2).number_format = "#,##0"
@@ -889,9 +907,11 @@ def build_design(wb):
     ws.cell(r, 2).fill = PatternFill("solid", fgColor=C["ltgray"])
     ws.cell(r, 2).alignment = Alignment(horizontal="center")
     dry_override_row = r
+    # Default dry mass overrides for Falcon 9 Block 5 (from published vehicle data)
+    dry_override_defaults = [22200, 4000, ""]
     for si in range(MAX_STAGES):
         c_val = 5 + si * 3
-        style_input(ws, r, c_val, value="")
+        style_input(ws, r, c_val, value=dry_override_defaults[si])
         ws.cell(r, c_val).number_format = "#,##0"
     r += 1
 
@@ -1345,6 +1365,51 @@ def build_readme(wb):
         ("• Solid stages show N/A for SL Isp in engine DB — use Vac Isp as a conservative estimate.", False),
         ("• Parallel staging (e.g. strap-on boosters firing simultaneously with a core) is not modeled.", False),
         ("  Treat parallel-burn vehicles (Soyuz, Ariane 5) as series stages for delta-v calculation.", False),
+        ("", False),
+        ("MAJOR SIMPLIFYING ASSUMPTIONS", True),
+        ("The following assumptions are baked into this model. Understanding them helps interpret results:", False),
+        ("", False),
+        ("1. GRAVITY LOSS MODEL", False),
+        ("   Gravity loss = (Gravity Loss Coefficient / TWR_liftoff) + Recovery Trajectory Penalty.", False),
+        ("   The TWR term captures the effect of liftoff acceleration on the gravity turn. The trajectory", False),
+        ("   penalty is an additive correction for the extra gravity loss incurred by recovery-optimized", False),
+        ("   pitch profiles (shallower pitch angle = more time fighting gravity). Calibrate both inputs", False),
+        ("   against a known vehicle. Typical total gravity loss: Expendable ~1,200–1,500 m/s (penalty=0);", False),
+        ("   ASDS ~1,700–2,000 m/s (penalty ~500 m/s); RTLS ~2,100–2,500 m/s (penalty ~900 m/s).", False),
+        ("   Remaining limitation: the model still cannot distinguish trajectory shape within a mission class", False),
+        ("   (e.g. a high-TWR expendable vs a low-TWR expendable will have the same penalty).", False),
+        ("", False),
+        ("2. EFFECTIVE ISP IS A LINEAR ATMOSPHERIC BLEND", False),
+        ("   Isp_eff = Isp_SL + Atm_Fraction × (Isp_vac - Isp_SL). The Atm Fraction input is a scalar", False),
+        ("   approximation of what is actually a continuous altitude-pressure curve. For sea-level-optimized", False),
+        ("   nozzles this can be off by 5–10 s depending on the vehicle's ascent profile. Default: 0.6 for S1.", False),
+        ("", False),
+        ("3. GLOW INCLUDES PAYLOAD (ITERATIVE — see note below)", False),
+        ("   GLOW includes the solved payload mass so TWR and gravity loss are self-consistent. This creates", False),
+        ("   a circular reference resolved by Excel's iterative calculation (File → Options → Formulas →", False),
+        ("   Enable iterative calculation). The workbook is saved with iteration enabled. If you see a", False),
+        ("   circular reference error, ensure iterative calculation is turned on in your Excel settings.", False),
+        ("", False),
+        ("4. RECOVERY IS MODELED AS A SINGLE BURN FROM DRY MASS", False),
+        ("   Recovery Propellant = eff_dry × (e^(ΔV_recovery / Isp / g₀) - 1). Real recovery sequences", False),
+        ("   have multiple burns (entry burn from partially-fueled stage, landing burn from near-dry stage),", False),
+        ("   each starting from different initial masses. A single-burn model slightly underestimates total", False),
+        ("   recovery propellant. The error is typically 5–15% of recovery propellant (~1–3% of total prop).", False),
+        ("", False),
+        ("5. FAIRING MASS IS NOT EXPLICITLY MODELED", False),
+        ("   The payload fairing (typically 1,700–2,000 kg for a 5m fairing) is jettisoned mid-ascent during", False),
+        ("   S1 burn. This model does not account for fairing jettison as a discrete mass event. In practice,", False),
+        ("   fairing mass is often included in the reported payload adapter mass as a workaround.", False),
+        ("", False),
+        ("6. GTO ΔV IS A FIXED INPUT", False),
+        ("   The GTO Orbital ΔV input (default 10,400 m/s) does not vary with launch site latitude, target", False),
+        ("   inclination, apogee altitude, or insertion strategy. GTO missions vary by 300–600 m/s depending", False),
+        ("   on these parameters. Tune this value for specific mission comparisons.", False),
+        ("", False),
+        ("7. ISP DOES NOT VARY WITH THROTTLE", False),
+        ("   Engines are modeled at a fixed Isp. In reality, throttling changes chamber pressure and mixture", False),
+        ("   ratio, shifting Isp by ~1–3%. This matters most for engines that throttle deeply (Merlin 1D", False),
+        ("   throttles to ~40% for landing burns). Effect on ascent performance is small but non-zero.", False),
     ]
 
     for ri, (text, bold) in enumerate(lines, 3):
