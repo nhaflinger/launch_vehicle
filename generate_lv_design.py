@@ -580,13 +580,13 @@ def build_design(wb):
     r += 1
 
     mission_inputs = [
-        ("Vehicle Name",                   "text",  "Falcon 9 Block 5 (ASDS)",  None),
+        ("Vehicle Name",                   "text",  "New Glenn Block 2 (7x2)",  None),
         ("Target Orbit",                   "text",  "LEO 400km / GTO",          None),
         ("Payload Adapter Mass",           "kg",    200,          "Separation hardware mass between payload and vehicle"),
         ("Orbital Velocity (LEO)",         "m/s",   7784,         "Target orbital velocity — 7784 m/s for 400km LEO; 7726 m/s for 200km"),
         ("Drag Loss",                      "m/s",   120,          "Aerodynamic drag loss — typically 100-150 m/s; relatively insensitive to thrust"),
         ("Gravity Loss Coefficient",          "—",    1750,         "Base gravity loss = coeff / TWR_liftoff; ~1750 typical for expendable; increase to match reusable vehicles"),
-        ("Trajectory Penalty",               "m/s",  500,          "Additive gravity loss for recovery pitch profile; 0=expendable, calibrate to match known vehicle — default 500 m/s for F9 ASDS"),
+        ("Trajectory Penalty",               "m/s",  500,          "Additive gravity loss for recovery pitch profile; 0=expendable, calibrate to match known vehicle — ~500 m/s estimated for NG Block 2 downrange recovery"),
         ("GTO Orbital ΔV",                 "m/s",   10400,        "Velocity needed at GTO perigee — ~10,200-10,500 m/s depending on inclination and target apogee"),
         ("Number of Stages",               "1-3",   2,            "Active stages (enter 1-3)"),
     ]
@@ -625,30 +625,29 @@ def build_design(wb):
     r += 1
 
     stage_rows = {}
-    # ── Default vehicle: Falcon 9 Block 5 (ASDS reuse) ──────────────────────────
-    # Published performance: 17,400 kg LEO (ASDS) / 8,300 kg GTO (ASDS)
-    # Self-consistent ΔV fractions derived from Tsiolkovsky analysis with published mass data.
-    # Expected model output: ~23,800 kg LEO (model over-predicts vs 17,400 published —
-    #   F9's recovery-optimized trajectory adds gravity losses beyond 1750/TWR empirical model).
-    # GTO prediction: ~8,100–8,300 kg (matches published ✓).
+    # ── Default vehicle: New Glenn Block 2 (7x2) ──────────────────────────────
+    # BE-4 Block 2 (7 engines, 2,847 kN SL ea w/ subcooling) + BE-3U Block 2 (2 engines, 890 kN vac ea)
+    # No official Block 2 payload figures released by Blue Origin; baseline NG: ~45t LEO / ~13t GTO.
+    # GTO ΔV fraction split (0.45/0.55) is an estimate — upper stage carries more for GTO trajectory.
+    # Subcooling gain of 3.5% applied to S1 propellant mass per BE-4 Block 2 design spec.
     stage_params = [
-        ("Stage Name",              "text",  ["S1 Core",       "S2 Upper",       ""]),
-        ("Engine (from Engine DB)", "name",  ["Merlin 1D",     "Merlin 1D Vac",  ""]),
-        ("Number of Engines",       "count", [9,                1,                ""]),
-        ("Propellant Combination",  "type",  ["LOX/RP-1",       "LOX/RP-1",       ""]),
-        ("Propellant Mass (nominal)","kg",    [411000,           111500,           ""]),
-        ("Subcooling Gain (%)",      "%",     [0.0,              0.0,              0.0]),
+        ("Stage Name",              "text",  ["S1 First",       "S2 Upper",       ""]),
+        ("Engine (from Engine DB)", "name",  ["BE-4 Block 2",   "BE-3U Block 2",  ""]),
+        ("Number of Engines",       "count", [7,                 2,                ""]),
+        ("Propellant Combination",  "type",  ["LOX/CH4",         "LOX/LH2",        ""]),
+        ("Propellant Mass (nominal)","kg",    [770000,            75000,            ""]),
+        ("Subcooling Gain (%)",      "%",     [3.5,               0.0,              0.0]),
         ("Effective Propellant Mass","kg",    None),   # nominal × (1 + gain/100)
-        ("Recovery ΔV Reserve (m/s)","m/s",  [500,              0,                0]),  # ASDS: no boost-back; entry+landing ~500 m/s
+        ("Recovery ΔV Reserve (m/s)","m/s",  [500,               0,                0]),  # NG S1 downrange ship landing; entry+landing ~500 m/s estimate
         ("Recovery Propellant Reserved","kg", None),   # deferred: eff_dry*(exp(ΔV/vac_isp/g0)-1)
-        ("LEO ΔV Fraction",          "0-1",  [0.40,             0.60,             ""]),
+        ("LEO ΔV Fraction",          "0-1",  [0.60,              0.40,             ""]),
         ("LEO ΔV Allocation",        "m/s",  None),   # fraction × calculated LEO mission ΔV
-        ("Vac Isp Override",         "s",    ["",               "",               ""]),
+        ("Vac Isp Override",         "s",    ["",                "",               ""]),
         ("Vac Isp (from DB)",        "s",    None),   # VLOOKUP col 4
         ("SL Isp (from DB)",         "s",    None),   # VLOOKUP col 5
-        ("Atm Fraction (0-1)",       "—",    [0.6,              1.0,              1.0]),
+        ("Atm Fraction (0-1)",       "—",    [0.6,               1.0,              1.0]),
         ("Effective Isp (used)",     "s",    None),   # SL + frac*(Vac-SL), or override
-        ("GTO ΔV Fraction",          "0-1",  [0.33,             0.67,             ""]),
+        ("GTO ΔV Fraction",          "0-1",  [0.55,              0.45,             ""]),
         ("GTO ΔV Allocation",        "m/s",  None),   # fraction × calculated GTO mission ΔV
     ]
 
@@ -896,8 +895,8 @@ def build_design(wb):
     ws.cell(r, 2).fill = PatternFill("solid", fgColor=C["ltgray"])
     ws.cell(r, 2).alignment = Alignment(horizontal="center")
     dry_override_row = r
-    # Default dry mass overrides for Falcon 9 Block 5 (from published vehicle data)
-    dry_override_defaults = [22200, 4000, ""]
+    # Default dry mass overrides for New Glenn Block 2 (from vehicle DB / Blue Origin estimates)
+    dry_override_defaults = [55000, 10000, ""]
     for si in range(MAX_STAGES):
         c_val = 5 + si * 3
         style_input(ws, r, c_val, value=dry_override_defaults[si])
