@@ -8,7 +8,7 @@ A Python script that generates an Excel workbook for conceptual launch vehicle d
 python3 generate_lv_design.py
 ```
 
-Outputs `launch_vehicle_design.xlsx`. Requires `openpyxl`:
+Outputs `lv_design_<vehicle_name>.xlsx` (filename derived from the Vehicle Name field). Requires `openpyxl`:
 
 ```bash
 pip3 install openpyxl
