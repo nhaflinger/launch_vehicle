@@ -5,6 +5,7 @@ Usage: python3 generate_lv_design.py
 Output: launch_vehicle_design.xlsx
 """
 
+import math
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -57,13 +58,14 @@ ENGINES = [
     ("J-2",             "Saturn V S-II / S-IVB", "LOX/LH2",   421, None,1033, None, 1788, 52, 27.5, "5x on S-II; 1x on S-IVB; restartable"),
     ("RS-68A",          "Delta IV Heavy CBC",    "LOX/LH2",   412, 365, 3370, 2949, 6597, 97, 21.5, "Gas-generator; simple design; largest H2 engine"),
     ("BE-3U",           "New Glenn S2",          "LOX/LH2",   440, None, 710, None, 2700, 90,200,   "Blue Origin upper stage engine; expander cycle; 2x on NG 7x2"),
-    ("BE-3U Block 2",   "New Glenn Block 2 S2",  "LOX/LH2",   440, None, 890, None, 2700, 90,200,   "Upgraded BE-3U; 890 kN vac (200,000 lbf) vs 710 kN original; 4x on NG 9x4; Isp unchanged"),
+    ("BE-3U Block 2",   "New Glenn Block 2 S2",  "LOX/LH2",   440, None, 890, None, 2700, 90,200,   "Upgraded BE-3U; 890 kN vac (200,000 lbf); original Block 2 announced spec; 2x on NG 7x2; 4x on NG 9x4"),
+    ("BE-3U Block 2+",  "New Glenn Block 2 S2",  "LOX/LH2",   440, None, 979, None, 2700, 90,200,   "Further upgraded BE-3U; 979 kN vac (220,000 lbf) announced; up from 890 kN Block 2; Isp held at 440 s pending confirmation"),
     # LOX/CH4
     ("Raptor 2",        "Starship / Super Heavy","LOX/CH4",   350, 327, 2350, 2200, 1500,330, 32.0, "Full-flow staged combustion; 33x on Super Heavy"),
     ("Raptor Vac",      "Starship upper",        "LOX/CH4",   380, None,2200, None, 1600,330,107,   "Vacuum variant; large fixed nozzle; 3x on Starship"),
-    ("BE-4",            "Vulcan / New Glenn S1", "LOX/CH4",   339, 310, 2400, 2100, 4760,134, 40.0, "Oxygen-rich staged combustion; 2x Vulcan / 7x NG 7x2 baseline"),
-    ("BE-4 Block 2",    "New Glenn Block 2 S1",  "LOX/CH4",   339, 310, 2847, 2490, 4760,134, 40.0, "Upgraded BE-4 with subcooling; 2,847 kN SL (640,000 lbf); use with Subcooling Gain ~3.5%"),
-    ("BE-4 Block 2 (no subcool)", "New Glenn Block 2 S1", "LOX/CH4", 339, 310, 2780, 2430, 4760,134, 40.0, "Upgraded BE-4 design improvements only, no subcooling; 2,780 kN SL (625,000 lbf); use with Subcooling Gain 0%"),
+    ("BE-4",            "Vulcan / New Glenn S1", "LOX/CH4",   339, 320, 2400, 2100, 4760,134, 40.0, "Oxygen-rich staged combustion; 2x Vulcan / 7x NG 7x2 baseline"),
+    ("BE-4 Block 2",    "New Glenn Block 2 S1",  "LOX/CH4",   339, 320, 2847, 2490, 4760,134, 40.0, "Upgraded BE-4 with subcooling; 2,847 kN SL (640,000 lbf); use with Subcooling Gain ~3.5%"),
+    ("BE-4 Block 2 (no subcool)", "New Glenn Block 2 S1", "LOX/CH4", 339, 320, 2780, 2430, 4760,134, 40.0, "Upgraded BE-4 design improvements only, no subcooling; 2,780 kN SL (625,000 lbf); use with Subcooling Gain 0%"),
     # Hypergolic
     ("AJ-10-190",       "Orion SPS / STS OMS",   "NTO/MMH",   316, None,  27, None,  118,  9, 49.0, "Pressure-fed; restartable; long heritage"),
     ("Vikas",           "PSLV / GSLV S2",        "NTO/UDMH",  293, 270,  800,  725,  634, 58, 16.0, "Indian engine; Ariane Viking derivative"),
@@ -204,11 +206,13 @@ VEHICLES = [
         "name": "New Glenn 9x4", "country": "USA", "operator": "Blue Origin",
         "first_flight": 2027, "status": "Development",
         "payload_leo_kg": 70000, "payload_gto_kg": 14000, "payload_tli_kg": 20000,
-        "glow_kg": 1300000, "height_m": 105.0, "diameter_m": 8.7,
-        "notes": "Heavy-lift variant; 9 BE-4 Block 2 S1 + 4 BE-3U Block 2 S2; 8.7m fairing; >70t LEO / >14t GTO announced; prop masses estimated",
+        "glow_kg": 1044000, "height_m": 120.0, "diameter_m": 8.7,
+        "notes": "Heavy-lift variant; 9 BE-4 Block 2 S1 + 4 BE-3U Block 2 S2; 8.7m fairing (body ~7m); ~120m total height; "
+                 "S2-biased % scaling from 7x2 (S1 ×1.10, S2 ×1.48); "
+                 "grav loss coeff 1400 (vs 1750 for 7x2) — higher TWR enables more aggressive ascent trajectory",
         "stages": [
-            ("S1 First",     "BE-4 Block 2",   9, 990000, 70000, "LOX/CH4; 9 BE-4 Block 2; prop mass estimated ~990t; reusable"),
-            ("S2 Upper",     "BE-3U Block 2",  4,  95000, 13000, "LOX/LH2; 4 BE-3U Block 2; prop mass estimated ~95t"),
+            ("S1 First",     "BE-4 Block 2",   9, 847000, 68000, "LOX/CH4; 9 BE-4 Block 2; 847t = 770t × 1.10; reusable"),
+            ("S2 Upper",     "BE-3U Block 2",  4, 111000, 18000, "LOX/LH2; 4 BE-3U Block 2; 111t = 75t × 1.48"),
         ],
     },
     {
@@ -268,6 +272,345 @@ SUBSYSTEMS = [
     ("Recovery Hardware",      0.0, 0.0, 0.0, 0.0, 0.0, "Landing legs, grid fins, parachutes — add manually if reusable"),
     ("Residuals / Margin",     0.5, 0.8, 0.5, 0.3, 0.5, "Unusable propellant, trapped fluids, 3-5% mass growth margin"),
 ]
+
+
+# ── Payload / Spacecraft Configs ───────────────────────────────────────────────
+PAYLOAD_BLUE_MOON_MK1 = {
+    "name":       "Blue Moon Mk1",
+    "mass_kg":    21_000,   # declared wet mass
+    "adapter_kg":    200,
+}
+
+
+# ── Vehicle Analysis Configs ───────────────────────────────────────────────────
+# Each entry drives build_payload_analysis() and produces one output file.
+# Stage types:
+#   "standard"      — burns sequentially; standard Tsiolkovsky treatment.
+#   "parallel_core" — strap-ons/SRBs fire at liftoff alongside a liquid core,
+#                     then jettison at booster burnout. Phase 1 uses the
+#                     thrust-weighted blended Isp; Phase 2 is core-only.
+#
+# Gravity / drag loss model (matches Vehicle Design sheet defaults):
+#   gravity_loss = grav_loss_coeff / TWR_liftoff + traj_penalty_ms
+#   drag_loss    = drag_loss_ms (constant)
+#   losses       = gravity_loss + drag_loss
+#
+# Notes on GEM-63XL (Vulcan VC6):
+#   Engine DB entry records peak SL thrust (1,930 kN) and Isp (252/279 s).
+#   Propellant mass (35,100 kg/booster) and dry mass (7,000 kg/booster) are
+#   from Northrop Grumman published data.  The DB thrust value represents peak
+#   thrust; solid motors taper, so effective average burn time via our model
+#   (~45 s) is shorter than the published ~94 s.  The ΔV is still correct
+#   because it depends on mass ratio × Isp, not burn time.
+#
+# Notes on SLS SRBs:
+#   Engine DB entry for "SRB (SLS 5-seg)" has engine mass = 90,718 kg (dry
+#   casing); propellant (590,000 kg per booster) is tracked separately here.
+
+ANALYSIS_NG_BLOCK2_7X2 = {
+    "vehicle_name":    "New Glenn Block 2 (7x2)",
+    "output_file":     "Blue_Moon_Mk1_NG_Block2_7x2.xlsx",
+    "grav_loss_coeff": 1750,
+    "traj_penalty_ms": 500,    # recovery pitch-over penalty
+    "drag_loss_ms":    120,
+    "stages": [
+        {
+            "name": "S1 First", "type": "standard",
+            "engine": "BE-4 Block 2", "n_engines": 7,
+            "prop_mass_kg": 770_000, "subcooling_pct": 3.5,
+            "dry_mass_kg": 55_000, "rec_dv_ms": 500, "atm_fraction": 0.6,
+        },
+        {
+            "name": "S2 Upper", "type": "standard",
+            "engine": "BE-3U Block 2", "n_engines": 2,
+            "prop_mass_kg": 75_000, "subcooling_pct": 0.0,
+            "dry_mass_kg": 10_000, "rec_dv_ms": 0, "atm_fraction": 1.0,
+        },
+    ],
+}
+
+ANALYSIS_VULCAN_VC6 = {
+    "vehicle_name":    "Vulcan Centaur VC6",
+    "output_file":     "Blue_Moon_Mk1_Vulcan_VC6.xlsx",
+    "grav_loss_coeff": 1750,
+    "traj_penalty_ms": 0,      # expendable; no recovery pitch-over
+    "drag_loss_ms":    120,
+    "stages": [
+        {
+            "name": "S1 Core + GEM-63XL (×6)", "type": "parallel_core",
+            "engine": "BE-4", "n_engines": 2,
+            "prop_mass_kg": 406_000, "subcooling_pct": 0.0,
+            "dry_mass_kg": 22_400, "rec_dv_ms": 0, "atm_fraction": 0.6,
+            "boosters": {
+                "engine": "GEM-63XL", "n_engines": 6,
+                "prop_mass_kg": 210_600,   # 6 × 35,100 kg (NGA published)
+                "dry_mass_kg":  42_000,    # 6 × 7,000 kg (Engine DB)
+                "atm_fraction": 0.9,
+            },
+        },
+        {
+            "name": "Centaur V", "type": "standard",
+            "engine": "RL-10C-1", "n_engines": 2,
+            "prop_mass_kg": 54_000, "subcooling_pct": 0.0,
+            "dry_mass_kg": 6_300, "rec_dv_ms": 0, "atm_fraction": 1.0,
+        },
+    ],
+}
+
+# ── Vehicle Design Sheet Defaults ─────────────────────────────────────────────
+# Passed to build_design(wb, vd) to pre-populate the yellow input cells.
+# All values are user-editable in the spreadsheet once generated.
+
+NG_7X2_DESIGN = {
+    "vehicle_name": "New Glenn Block 2 (7x2)",
+    "traj_penalty":  500,
+    "s_names":       ["S1 First",     "S2 Upper",     ""],
+    "s_engines":     ["BE-4 Block 2", "BE-3U Block 2",""],
+    "s_n_eng":       [7,               2,              ""],
+    "s_prop_type":   ["LOX/CH4",       "LOX/LH2",      ""],
+    "s_prop":        [770_000,          75_000,         ""],
+    "s_subcool":     [3.5,              0.0,             0.0],
+    "s_rec_dv":      [500,              0,               0],
+    "s_atm_frac":    [0.6,              1.0,             1.0],
+    "s_leo_frac":    [0.60,             0.40,            ""],
+    "s_gto_frac":    [0.55,             0.45,            ""],
+    "s_dry_ovr":     [55_000,           10_000,          ""],
+}
+
+NG_9X4_DESIGN = {
+    "vehicle_name": "New Glenn 9x4",
+    "traj_penalty":  500,
+    "s_names":       ["S1 First",     "S2 Upper",     ""],
+    "s_engines":     ["BE-4 Block 2", "BE-3U Block 2",""],
+    "s_n_eng":       [9,               4,              ""],
+    "s_prop_type":   ["LOX/CH4",       "LOX/LH2",      ""],
+    "s_prop":        [847_000,          111_000,         ""],   # 7x2 × 1.10/1.48 (S2-biased split: S1+10%, S2+48%)
+    "s_subcool":     [3.5,              0.0,             0.0],
+    "s_rec_dv":      [300,              0,               0],
+    "s_atm_frac":    [0.6,              1.0,             1.0],
+    "s_leo_frac":    [0.60,             0.40,            ""],
+    "s_gto_frac":    [0.55,             0.45,            ""],
+    "s_dry_ovr":     [68_000,           18_000,          ""],
+}
+
+
+ANALYSIS_SLS_BLOCK1 = {
+    "vehicle_name":    "SLS Block 1",
+    "output_file":     "Blue_Moon_Mk1_SLS_Block1.xlsx",
+    "grav_loss_coeff": 1750,
+    "traj_penalty_ms": 0,
+    "drag_loss_ms":    120,
+    "stages": [
+        {
+            "name": "Core Stage + SRBs (×2)", "type": "parallel_core",
+            "engine": "RS-25 (SSME)", "n_engines": 4,
+            "prop_mass_kg": 987_000, "subcooling_pct": 0.0,
+            "dry_mass_kg": 85_000, "rec_dv_ms": 0, "atm_fraction": 0.5,
+            "boosters": {
+                "engine": "SRB (SLS 5-seg)", "n_engines": 2,
+                "prop_mass_kg": 1_180_000,  # 2 × 590,000 kg
+                "dry_mass_kg":    181_436,  # 2 × 90,718 kg (Engine DB dry casing)
+                "atm_fraction": 0.8,
+            },
+        },
+        {
+            "name": "ICPS Upper", "type": "standard",
+            "engine": "RL-10C-3", "n_engines": 1,
+            "prop_mass_kg": 27_220, "subcooling_pct": 0.0,
+            "dry_mass_kg": 3_500, "rec_dv_ms": 0, "atm_fraction": 1.0,
+        },
+    ],
+}
+
+ANALYSIS_NG_9X4 = {
+    "vehicle_name":    "New Glenn 9x4",
+    "output_file":     "Blue_Moon_Mk1_NG_9x4.xlsx",
+    "grav_loss_coeff": 1400,   # lower coeff vs 7x2 (1750); 9x4 higher TWR allows more aggressive trajectory
+    "traj_penalty_ms": 500,
+    "drag_loss_ms":    120,
+    "stages": [
+        {
+            "name": "S1 First", "type": "standard",
+            "engine": "BE-4 Block 2", "n_engines": 9,
+            "prop_mass_kg": 847_000, "subcooling_pct": 3.5,   # 7x2 × 1.10 (S2-biased split: S1+10%, S2+48%)
+            "dry_mass_kg": 68_000, "rec_dv_ms": 300, "atm_fraction": 0.6,
+        },
+        {
+            "name": "S2 Upper", "type": "standard",
+            "engine": "BE-3U Block 2", "n_engines": 4,
+            "prop_mass_kg": 111_000, "subcooling_pct": 0.0,   # 7x2 × 1.48 (S2-biased split: S1+10%, S2+48%)
+            "dry_mass_kg": 18_000, "rec_dv_ms": 0, "atm_fraction": 1.0,
+        },
+    ],
+}
+
+
+# ── Analysis helpers ───────────────────────────────────────────────────────────
+def lookup_engine(name):
+    """Return engine dict from ENGINES list; raises ValueError if not found."""
+    for eng in ENGINES:
+        if eng[0] == name:
+            return {
+                "name":          eng[0],
+                "vac_isp":       eng[3],
+                "sl_isp":        eng[4],          # None for solid/vacuum-only
+                "vac_thrust_kn": eng[5],
+                "sl_thrust_kn":  eng[6],          # None for vacuum-only
+                "mass_kg":       eng[7],
+            }
+    raise ValueError(f"Engine not found in ENGINES: '{name}'")
+
+
+def blended_isp(engine, atm_fraction):
+    """Effective Isp = SL_Isp + atm_fraction × (Vac_Isp − SL_Isp).
+    Falls back to Vac_Isp when SL_Isp is unavailable (solids, upper stages)."""
+    sl = engine["sl_isp"] or engine["vac_isp"]
+    return sl + atm_fraction * (engine["vac_isp"] - sl)
+
+
+def compute_dv_budget(vehicle_cfg, payload_cfg):
+    """
+    Compute the full ΔV budget for a given vehicle + payload combination.
+
+    Returns a dict with keys:
+        stages       – list of per-stage result dicts (in burn order)
+        total_dv     – sum of all stage ΔVs (m/s)
+        glow         – estimated GLOW using nominal prop masses, no payload (kg)
+        twr          – liftoff TWR (stage masses only)
+        grav_loss    – gravity loss (m/s)
+        drag_loss    – drag loss (m/s)
+        losses       – total losses (m/s)
+        v_inject     – injection velocity at perigee (total_dv − losses, m/s)
+
+    Stage result dict keys (both types):
+        name, type, dv, m0, mf, isp_eff, rec_prop, eff_dry_asc,
+        eff_prop, dry_mass, n_engines, engine
+    Additional keys for "parallel_core":
+        dv_phase1, dv_phase2, isp_parallel, prop_core_p1,
+        booster_prop, booster_dry, booster_engine
+    """
+    payload   = payload_cfg["mass_kg"]
+    adapter   = payload_cfg["adapter_kg"]
+    stage_cfgs = vehicle_cfg["stages"]
+
+    # ── Resolve engines and compute per-stage gross masses ────────────────────
+    # Gross mass = eff_prop + dry  (+ booster prop + dry for parallel_core)
+    # "above" mass for stage i = sum of stage_gross[i+1:] + payload + adapter
+    stage_info = []   # resolved stage data
+    stage_gross = []  # actual gross mass for "above" calculations
+
+    for sc in stage_cfgs:
+        eng = lookup_engine(sc["engine"])
+        eff_prop = sc["prop_mass_kg"] * (1 + sc.get("subcooling_pct", 0) / 100)
+        rec_prop = 0.0
+        if sc.get("rec_dv_ms", 0) > 0:
+            rec_prop = sc["dry_mass_kg"] * (
+                math.exp(sc["rec_dv_ms"] / (eng["vac_isp"] * G0)) - 1)
+        isp = blended_isp(eng, sc.get("atm_fraction", 1.0))
+
+        info = {
+            "name": sc["name"], "type": sc["type"],
+            "engine": eng, "n_engines": sc["n_engines"],
+            "prop_mass_kg": sc["prop_mass_kg"],   # nominal (for GLOW)
+            "eff_prop": eff_prop, "rec_prop": rec_prop,
+            "dry_mass": sc["dry_mass_kg"],
+            "eff_dry_asc": sc["dry_mass_kg"] + rec_prop,
+            "isp_eff": isp,
+            "rec_dv_ms": sc.get("rec_dv_ms", 0),
+        }
+
+        if sc["type"] == "parallel_core":
+            bsc  = sc["boosters"]
+            beng = lookup_engine(bsc["engine"])
+            bisp = blended_isp(beng, bsc.get("atm_fraction", 1.0))
+            info["booster_engine"]  = beng
+            info["booster_n_eng"]   = bsc["n_engines"]
+            info["booster_prop"]    = bsc["prop_mass_kg"]
+            info["booster_dry"]     = bsc["dry_mass_kg"]
+            info["booster_isp_eff"] = bisp
+            gross = (eff_prop + sc["dry_mass_kg"]
+                     + bsc["prop_mass_kg"] + bsc["dry_mass_kg"])
+        else:
+            gross = eff_prop + sc["dry_mass_kg"]
+
+        stage_info.append(info)
+        stage_gross.append(gross)
+
+    # ── Compute ΔV per stage ──────────────────────────────────────────────────
+    results = []
+    for i, si in enumerate(stage_info):
+        above = sum(stage_gross[i + 1:]) + payload + adapter
+        eng   = si["engine"]
+
+        if si["type"] == "standard":
+            m0 = si["eff_prop"] + si["dry_mass"] + above
+            mf = si["eff_dry_asc"] + above
+            dv = si["isp_eff"] * G0 * math.log(m0 / mf)
+            results.append({**si, "m0": m0, "mf": mf, "dv": dv})
+
+        elif si["type"] == "parallel_core":
+            beng  = si["booster_engine"]
+            bisp  = si["booster_isp_eff"]
+            T_core  = si["n_engines"]      * (eng["sl_thrust_kn"]  or eng["vac_thrust_kn"])  * 1_000
+            T_boost = si["booster_n_eng"]  * (beng["sl_thrust_kn"] or beng["vac_thrust_kn"]) * 1_000
+            T_total = T_core + T_boost
+
+            mdot_core  = T_core  / (si["isp_eff"] * G0)
+            mdot_boost = T_boost / (bisp          * G0)
+            t_boost    = si["booster_prop"] / mdot_boost
+            prop_core_p1 = mdot_core * t_boost
+
+            # Phase 1: core + boosters burn simultaneously
+            isp_parallel = T_total / ((mdot_core + mdot_boost) * G0)
+            m0_p1 = (si["eff_prop"] + si["dry_mass"]
+                     + si["booster_prop"] + si["booster_dry"] + above)
+            mf_p1 = m0_p1 - si["booster_prop"] - si["booster_dry"] - prop_core_p1
+            dv_p1 = isp_parallel * G0 * math.log(m0_p1 / mf_p1)
+
+            # Phase 2: core burns remaining propellant alone
+            m0_p2 = mf_p1
+            mf_p2 = si["eff_dry_asc"] + above
+            dv_p2 = si["isp_eff"] * G0 * math.log(m0_p2 / mf_p2)
+
+            dv = dv_p1 + dv_p2
+            results.append({
+                **si,
+                "m0": m0_p1, "mf": mf_p2, "dv": dv,
+                "dv_phase1": dv_p1, "dv_phase2": dv_p2,
+                "isp_parallel": isp_parallel,
+                "prop_core_p1": prop_core_p1,
+            })
+
+    # ── TWR & losses (use nominal prop for GLOW, consistent with design sheet) ─
+    glow = sum(
+        si["prop_mass_kg"] + si["dry_mass"]
+        + (si.get("booster_prop", 0) + si.get("booster_dry", 0))
+        for si in stage_info
+    )
+    s0   = stage_info[0]
+    s0eng = s0["engine"]
+    T_liftoff = s0["n_engines"] * (s0eng["sl_thrust_kn"] or s0eng["vac_thrust_kn"]) * 1_000
+    if s0["type"] == "parallel_core":
+        beng0 = s0["booster_engine"]
+        T_liftoff += s0["booster_n_eng"] * (beng0["sl_thrust_kn"] or beng0["vac_thrust_kn"]) * 1_000
+
+    twr       = T_liftoff / (glow * G0)
+    grav_loss = vehicle_cfg["grav_loss_coeff"] / twr + vehicle_cfg.get("traj_penalty_ms", 0)
+    drag_loss = vehicle_cfg.get("drag_loss_ms", 120)
+    losses    = grav_loss + drag_loss
+    total_dv  = sum(r["dv"] for r in results)
+    v_inject  = total_dv - losses
+
+    return {
+        "stages":    results,
+        "total_dv":  total_dv,
+        "glow":      glow,
+        "twr":       twr,
+        "grav_loss": grav_loss,
+        "drag_loss": drag_loss,
+        "losses":    losses,
+        "v_inject":  v_inject,
+    }
 
 
 def style_hdr(ws, row, col, text, span=1, dark=True):
@@ -531,7 +874,8 @@ def build_propellants(wb):
 # ─────────────────────────────────────────────────────────────────────────────
 # SHEET: Vehicle Design (main working sheet)
 # ─────────────────────────────────────────────────────────────────────────────
-def build_design(wb):
+def build_design(wb, vd=None):
+    vd = vd or NG_7X2_DESIGN
     ws = wb.create_sheet("Vehicle Design", 0)
     ws.sheet_view.showGridLines = False
     ws.freeze_panes = "A5"
@@ -580,13 +924,13 @@ def build_design(wb):
     r += 1
 
     mission_inputs = [
-        ("Vehicle Name",                   "text",  "New Glenn Block 2 (7x2)",  None),
-        ("Target Orbit",                   "text",  "LEO 400km / GTO",          None),
+        ("Vehicle Name",                   "text",  vd["vehicle_name"],  None),
+        ("Target Orbit",                   "text",  "LEO 400km / GTO",   None),
         ("Payload Adapter Mass",           "kg",    200,          "Separation hardware mass between payload and vehicle"),
         ("Orbital Velocity (LEO)",         "m/s",   7784,         "Target orbital velocity — 7784 m/s for 400km LEO; 7726 m/s for 200km"),
         ("Drag Loss",                      "m/s",   120,          "Aerodynamic drag loss — typically 100-150 m/s; relatively insensitive to thrust"),
         ("Gravity Loss Coefficient",          "—",    1750,         "Base gravity loss = coeff / TWR_liftoff; ~1750 typical for expendable; increase to match reusable vehicles"),
-        ("Trajectory Penalty",               "m/s",  500,          "Additive gravity loss for recovery pitch profile; 0=expendable, calibrate to match known vehicle — ~500 m/s estimated for NG Block 2 downrange recovery"),
+        ("Trajectory Penalty",               "m/s",  vd["traj_penalty"], "Additive gravity loss for recovery pitch profile; 0=expendable, calibrate to match known vehicle — ~500 m/s estimated for NG Block 2 downrange recovery"),
         ("GTO Orbital ΔV",                 "m/s",   10400,        "Velocity needed at GTO perigee — ~10,200-10,500 m/s depending on inclination and target apogee"),
         ("Number of Stages",               "1-3",   2,            "Active stages (enter 1-3)"),
     ]
@@ -625,30 +969,25 @@ def build_design(wb):
     r += 1
 
     stage_rows = {}
-    # ── Default vehicle: New Glenn Block 2 (7x2) ──────────────────────────────
-    # BE-4 Block 2 (7 engines, 2,847 kN SL ea w/ subcooling) + BE-3U Block 2 (2 engines, 890 kN vac ea)
-    # No official Block 2 payload figures released by Blue Origin; baseline NG: ~45t LEO / ~13t GTO.
-    # GTO ΔV fraction split (0.45/0.55) is an estimate — upper stage carries more for GTO trajectory.
-    # Subcooling gain of 3.5% applied to S1 propellant mass per BE-4 Block 2 design spec.
     stage_params = [
-        ("Stage Name",              "text",  ["S1 First",       "S2 Upper",       ""]),
-        ("Engine (from Engine DB)", "name",  ["BE-4 Block 2",   "BE-3U Block 2",  ""]),
-        ("Number of Engines",       "count", [7,                 2,                ""]),
-        ("Propellant Combination",  "type",  ["LOX/CH4",         "LOX/LH2",        ""]),
-        ("Propellant Mass (nominal)","kg",    [770000,            75000,            ""]),
-        ("Subcooling Gain (%)",      "%",     [3.5,               0.0,              0.0]),
-        ("Effective Propellant Mass","kg",    None),   # nominal × (1 + gain/100)
-        ("Recovery ΔV Reserve (m/s)","m/s",  [500,               0,                0]),  # NG S1 downrange ship landing; entry+landing ~500 m/s estimate
-        ("Recovery Propellant Reserved","kg", None),   # deferred: eff_dry*(exp(ΔV/vac_isp/g0)-1)
-        ("LEO ΔV Fraction",          "0-1",  [0.60,              0.40,             ""]),
-        ("LEO ΔV Allocation",        "m/s",  None),   # fraction × calculated LEO mission ΔV
-        ("Vac Isp Override",         "s",    ["",                "",               ""]),
-        ("Vac Isp (from DB)",        "s",    None),   # VLOOKUP col 4
-        ("SL Isp (from DB)",         "s",    None),   # VLOOKUP col 5
-        ("Atm Fraction (0-1)",       "—",    [0.6,               1.0,              1.0]),
-        ("Effective Isp (used)",     "s",    None),   # SL + frac*(Vac-SL), or override
-        ("GTO ΔV Fraction",          "0-1",  [0.55,              0.45,             ""]),
-        ("GTO ΔV Allocation",        "m/s",  None),   # fraction × calculated GTO mission ΔV
+        ("Stage Name",               "text",  vd["s_names"]),
+        ("Engine (from Engine DB)",  "name",  vd["s_engines"]),
+        ("Number of Engines",        "count", vd["s_n_eng"]),
+        ("Propellant Combination",   "type",  vd["s_prop_type"]),
+        ("Propellant Mass (nominal)", "kg",   vd["s_prop"]),
+        ("Subcooling Gain (%)",       "%",    vd["s_subcool"]),
+        ("Effective Propellant Mass", "kg",   None),   # nominal × (1 + gain/100)
+        ("Recovery ΔV Reserve (m/s)", "m/s", vd["s_rec_dv"]),
+        ("Recovery Propellant Reserved", "kg", None),  # deferred
+        ("LEO ΔV Fraction",           "0-1", vd["s_leo_frac"]),
+        ("LEO ΔV Allocation",         "m/s", None),   # deferred
+        ("Vac Isp Override",          "s",   ["", "", ""]),
+        ("Vac Isp (from DB)",         "s",   None),   # VLOOKUP col 4
+        ("SL Isp (from DB)",          "s",   None),   # VLOOKUP col 5
+        ("Atm Fraction (0-1)",        "—",   vd["s_atm_frac"]),
+        ("Effective Isp (used)",      "s",   None),   # SL + frac*(Vac-SL), or override
+        ("GTO ΔV Fraction",           "0-1", vd["s_gto_frac"]),
+        ("GTO ΔV Allocation",         "m/s", None),   # deferred
     ]
 
     for param, unit, defaults in stage_params:
@@ -896,7 +1235,7 @@ def build_design(wb):
     ws.cell(r, 2).alignment = Alignment(horizontal="center")
     dry_override_row = r
     # Default dry mass overrides for New Glenn Block 2 (from vehicle DB / Blue Origin estimates)
-    dry_override_defaults = [55000, 10000, ""]
+    dry_override_defaults = vd["s_dry_ovr"]
     for si in range(MAX_STAGES):
         c_val = 5 + si * 3
         style_input(ws, r, c_val, value=dry_override_defaults[si])
@@ -1301,6 +1640,21 @@ def build_readme(wb):
     ws.row_dimensions[1].height = 28
 
     lines = [
+        ("DISCLAIMER", True),
+        ("All analysis in this tool is conducted using only publicly available information or assumptions", False),
+        ("based on industry standards and engineering analysis. This includes:", False),
+        ("  •  Published payload figures and performance claims from vehicle operators", False),
+        ("  •  Announced engine performance data (Isp, thrust) from manufacturer press releases", False),
+        ("  •  Official vehicle dimensions from public sources (Wikipedia, manufacturer websites)", False),
+        ("  •  Industry-standard models for gravity loss, drag loss, and structural mass fractions", False),
+        ("  •  Open-source reference materials and engineering first principles", False),
+        ("", False),
+        ("No proprietary, export-controlled, or non-public data has been used. Parameters for vehicles", False),
+        ("under development (New Glenn 9x4, Vulcan VC6, etc.) are engineering estimates derived from", False),
+        ("public announcements and documented assumptions. Where actual data is unavailable, assumptions", False),
+        ("are explicitly flagged. Results are for educational and analytical purposes only and should not", False),
+        ("be taken as authoritative performance specifications.", False),
+        ("", False),
         ("HOW TO USE", True),
         ("1.  Go to 'Vehicle Design' tab — this is your main working sheet.", False),
         ("2.  Fill in Mission Requirements (yellow cells): payload mass, target orbit, delta-v budget.", False),
@@ -1424,20 +1778,244 @@ def build_readme(wb):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SHEET: Payload Direct-Injection Orbital Reach Analysis
+# ─────────────────────────────────────────────────────────────────────────────
+def build_payload_analysis(wb, vehicle_cfg, payload_cfg):
+    """
+    Generic direct-injection orbital reach analysis for any vehicle + payload.
+
+    The launch vehicle injects the payload into a maximum-apogee elliptical
+    orbit at perigee.  No circularization burn is assumed — the spacecraft
+    performs its own orbit-raising.  All stage ΔV minus trajectory losses goes
+    directly into perigee injection velocity.
+
+    Supports "standard" (series) and "parallel_core" (strap-on / SRB) stages
+    via compute_dv_budget().  See vehicle analysis config dicts for examples.
+    """
+    MU_E = 3.986004418e14
+    R_E  = 6_371_000
+
+    budget   = compute_dv_budget(vehicle_cfg, payload_cfg)
+    v_inject = budget["v_inject"]
+    vname    = vehicle_cfg["vehicle_name"]
+    pname    = payload_cfg["name"]
+    pmass    = payload_cfg["mass_kg"]
+
+    # ── Perigee sweep: vis-viva apogee for 185–500 km perigee altitudes ───────
+    sweep_rows = []
+    for h_p in range(185, 525, 25):
+        r_p    = R_E + h_p * 1000
+        v_circ = math.sqrt(MU_E / r_p)
+        v_esc  = math.sqrt(2 * MU_E / r_p)
+        denom  = 2 * MU_E / r_p - v_inject ** 2
+        if denom <= 0:
+            sweep_rows.append((h_p, v_circ, v_esc, None, None, None))
+        else:
+            a      = MU_E / denom
+            r_apo  = 2 * a - r_p
+            h_apo  = (r_apo - R_E) / 1000
+            period = 2 * math.pi * math.sqrt(a ** 3 / MU_E) / 3600
+            sweep_rows.append((h_p, v_circ, v_esc, h_apo, period, a / 1000))
+
+    # ── Build worksheet ───────────────────────────────────────────────────────
+    ws = wb.create_sheet(f"{pname} — {vname}"[:31])   # Excel 31-char sheet name limit
+    ws.sheet_view.showGridLines = False
+
+    col_widths = [38, 14, 14, 14, 14, 14, 14]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    r = 1
+    style_hdr(ws, r, 1,
+              f"{pname.upper()}  DIRECT INJECTION ANALYSIS  —  {vname}",
+              span=7)
+    ws.row_dimensions[r].height = 26
+    r += 1
+
+    note = ws.cell(r, 1,
+        f"Payload: {pname}, {pmass:,} kg  |  "
+        "No circularization — spacecraft performs own orbit raising  |  "
+        "All stage ΔV (minus losses) goes into maximising apogee at perigee injection")
+    note.font = Font(size=9, italic=True, color="555555")
+    ws.merge_cells(f"A{r}:G{r}")
+    ws.row_dimensions[r].height = 14
+    r += 2
+
+    # ── Helper: write one label/unit/value budget row ─────────────────────────
+    def brow(label, unit, value, bold=False):
+        nonlocal r
+        fg = C["pos"] if bold else C["ltgray"]
+        c1 = ws.cell(r, 1, value=label)
+        c1.font      = Font(bold=bold, size=10)
+        c1.fill      = PatternFill("solid", fgColor=fg)
+        c1.alignment = Alignment(horizontal="left", indent=1)
+        c2 = ws.cell(r, 2, value=unit)
+        c2.font      = Font(size=9, color="777777")
+        c2.fill      = PatternFill("solid", fgColor=fg)
+        c2.alignment = Alignment(horizontal="center")
+        c3 = ws.cell(r, 3, value=round(value, 1) if isinstance(value, float) else value)
+        c3.font      = Font(bold=bold, size=10, italic=True)
+        c3.fill      = PatternFill("solid", fgColor=C["pos"] if bold else C["calc"])
+        c3.alignment = Alignment(horizontal="center")
+        c3.number_format = "#,##0" if unit in ("kg", "m/s") else "0.00"
+        r += 1
+
+    # ── Section: Stage ΔV Budget ──────────────────────────────────────────────
+    style_sec(ws, r, 1,
+              f"STAGE ΔV BUDGET  —  {pmass:,} kg PAYLOAD", span=7)
+    ws.row_dimensions[r].height = 18
+    r += 1
+
+    for si, stage in enumerate(budget["stages"], 1):
+        sn = stage["name"]
+
+        if stage["type"] == "standard":
+            sc = vehicle_cfg["stages"][si - 1]
+            if sc.get("subcooling_pct", 0):
+                brow(f"{sn}  Nominal Propellant",                      "kg",  stage["prop_mass_kg"])
+                brow(f"{sn}  Eff. Propellant  ({sc['subcooling_pct']}% subcooling)", "kg", stage["eff_prop"])
+            else:
+                brow(f"{sn}  Propellant",                              "kg",  stage["eff_prop"])
+            if stage["rec_prop"]:
+                brow(f"{sn}  Recovery Propellant Reserved  ({stage['rec_dv_ms']} m/s ΔV)", "kg", stage["rec_prop"])
+            brow(f"{sn}  Effective Dry Mass during ascent",            "kg",  stage["eff_dry_asc"])
+            brow(f"{sn}  Effective Isp  ({stage['engine']['name']})",  "s",   stage["isp_eff"])
+            brow(f"{sn}  Initial Mass m₀",                             "kg",  stage["m0"])
+            brow(f"{sn}  Burnout Mass m_f",                            "kg",  stage["mf"])
+            brow(f"{sn}  ΔV  (Tsiolkovsky)",                           "m/s", stage["dv"],  bold=True)
+
+        elif stage["type"] == "parallel_core":
+            brow(f"{sn}  Core Propellant",                             "kg",  stage["eff_prop"])
+            if stage["rec_prop"]:
+                brow(f"{sn}  Core Recovery Propellant Reserved",       "kg",  stage["rec_prop"])
+            brow(f"{sn}  Core Effective Dry Mass",                     "kg",  stage["eff_dry_asc"])
+            brow(f"{sn}  Core Effective Isp  ({stage['engine']['name']})", "s", stage["isp_eff"])
+            brow(f"{sn}  Booster Propellant  ({stage['booster_engine']['name']} ×{stage['booster_n_eng']})", "kg", stage["booster_prop"])
+            brow(f"{sn}  Booster Dry Mass",                            "kg",  stage["booster_dry"])
+            brow(f"{sn}  Booster Effective Isp",                       "s",   stage["booster_isp_eff"])
+            brow(f"{sn}  Blended Isp  (Phase 1, parallel burn)",       "s",   stage["isp_parallel"])
+            brow(f"{sn}  Core Prop Burned in Phase 1",                 "kg",  stage["prop_core_p1"])
+            brow(f"{sn}  Liftoff Mass m₀",                             "kg",  stage["m0"])
+            brow(f"{sn}  Phase 1 ΔV  (boosters + core)",               "m/s", stage["dv_phase1"])
+            brow(f"{sn}  Phase 2 ΔV  (core only)",                     "m/s", stage["dv_phase2"])
+            brow(f"{sn}  Total ΔV",                                    "m/s", stage["dv"],  bold=True)
+
+        r += 1  # blank separator between stages
+
+    brow("Total Stage ΔV  (all stages)", "m/s", budget["total_dv"], bold=True)
+    r += 1
+
+    # ── Section: Losses & Injection Velocity ─────────────────────────────────
+    style_sec(ws, r, 1, "TRAJECTORY LOSSES  &  INJECTION VELOCITY", span=7)
+    ws.row_dimensions[r].height = 18
+    r += 1
+
+    grav_label = (f"Gravity Loss  ({vehicle_cfg['grav_loss_coeff']:,} / TWR"
+                  + (f" + {vehicle_cfg['traj_penalty_ms']} m/s penalty)" if vehicle_cfg.get("traj_penalty_ms") else ")"))
+    brow("Liftoff TWR  (stage masses only, no payload)",  "—",   budget["twr"])
+    brow(grav_label,                                      "m/s", budget["grav_loss"])
+    brow("Drag Loss",                                     "m/s", budget["drag_loss"])
+    brow("Total Losses",                                  "m/s", budget["losses"])
+    brow("INJECTION VELOCITY AT PERIGEE  (total ΔV − losses)", "m/s", v_inject, bold=True)
+    r += 1
+
+    r_ref     = R_E + 300_000
+    v_esc_ref = math.sqrt(2 * MU_E / r_ref)
+    ratio     = v_inject / v_esc_ref
+    note2 = ws.cell(r, 1,
+        f"Injection velocity {v_inject:,.0f} m/s = {ratio*100:.1f}% of escape velocity "
+        f"at 300 km ({v_esc_ref:,.0f} m/s)  —  "
+        + ("well-bound elliptical orbit" if ratio < 1 else "EXCEEDS ESCAPE VELOCITY — hyperbolic trajectory"))
+    note2.font      = Font(size=9, italic=True, color="444444")
+    note2.fill      = PatternFill("solid", fgColor=C["ltgray"])
+    note2.alignment = Alignment(horizontal="left", indent=1, wrap_text=True)
+    ws.merge_cells(f"A{r}:G{r}")
+    ws.row_dimensions[r].height = 16
+    r += 2
+
+    # ── Section: Perigee sweep table ─────────────────────────────────────────
+    style_hdr(ws, r, 1,
+              "APOGEE ALTITUDE vs PERIGEE ALTITUDE  —  Direct Injection, No Circularization",
+              span=7)
+    ws.row_dimensions[r].height = 20
+    r += 1
+
+    for ci, h in enumerate(["Perigee Alt (km)", "v_circ at perigee (m/s)",
+                             "v_inject (m/s)", "v_escape at perigee (m/s)",
+                             "Apogee Alt (km)", "Semi-major axis (km)", "Orbital Period (hr)"], 1):
+        style_hdr(ws, r, ci, h, dark=False)
+    ws.row_dimensions[r].height = 28
+    r += 1
+
+    for h_p, v_circ, v_esc, h_apo, period, a_km in sweep_rows:
+        fg = C["ltgray"] if (h_p // 50) % 2 else C["white"]
+        vals = [h_p, round(v_circ), round(v_inject), round(v_esc),
+                round(h_apo) if h_apo is not None else "escape",
+                round(a_km)  if a_km  is not None else "—",
+                round(period, 2) if period is not None else "—"]
+        for ci, v in enumerate(vals, 1):
+            cell = ws.cell(r, ci, value=v)
+            cell.fill      = PatternFill("solid", fgColor=fg)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.font      = Font(size=10)
+            if ci in (1, 2, 3, 4, 5, 6) and isinstance(v, (int, float)):
+                cell.number_format = "#,##0"
+        apply_border_range(ws, r, r, 1, 7)
+        ws.row_dimensions[r].height = 15
+        r += 1
+
+    # ── Section: Result summary ───────────────────────────────────────────────
+    r += 1
+    style_sec(ws, r, 1, "RESULT", span=7)
+    ws.row_dimensions[r].height = 18
+    r += 1
+
+    r_rep     = R_E + 300_000
+    denom_rep = 2 * MU_E / r_rep - v_inject ** 2
+    if denom_rep > 0:
+        a_rep     = MU_E / denom_rep
+        h_apo_rep = (2 * a_rep - r_rep - R_E) / 1000
+        T_rep     = 2 * math.pi * math.sqrt(a_rep ** 3 / MU_E) / 3600
+        result_headline = (f"At 300 km perigee:  apogee ≈ {h_apo_rep:,.0f} km  "
+                           f" |  orbital period ≈ {T_rep:.2f} hr")
+    else:
+        result_headline = "Injection velocity exceeds escape velocity — hyperbolic trajectory (solar system escape)"
+
+    def fmt_apo(v):
+        return f"{v:,} km" if isinstance(v, int) else str(v)
+
+    low_h_apo  = next((round(row[3]) for row in sweep_rows          if row[3] is not None), "escape")
+    high_h_apo = next((round(row[3]) for row in reversed(sweep_rows) if row[3] is not None), "escape")
+
+    for text, bold, fg in [
+        (result_headline, True, C["pos"]),
+        (f"  Apogee range across perigee sweep: {fmt_apo(low_h_apo)} (185 km perigee) "
+         f"→ {fmt_apo(high_h_apo)} (500 km perigee)", False, C["calc"]),
+        (f"  Spacecraft performs own apogee-raising burns from this orbit to reach TLI.  "
+         "Moon mean distance ≈ 378,000 km — beyond direct injection capability.", False, C["ltgray"]),
+        (f"  Model: gravity loss coeff {vehicle_cfg['grav_loss_coeff']:,} / TWR"
+         + (f" + {vehicle_cfg['traj_penalty_ms']} m/s trajectory penalty" if vehicle_cfg.get('traj_penalty_ms') else "")
+         + f".  Drag loss {vehicle_cfg.get('drag_loss_ms', 120)} m/s.", False, C["ltgray"]),
+    ]:
+        cell = ws.cell(r, 1, value=text)
+        cell.font      = Font(bold=bold, size=11 if bold else 9, italic=(not bold))
+        cell.fill      = PatternFill("solid", fgColor=fg)
+        cell.alignment = Alignment(horizontal="left", indent=1, wrap_text=True)
+        ws.merge_cells(f"A{r}:G{r}")
+        ws.row_dimensions[r].height = 28 if bold else 22
+        r += 1
+
+    return ws
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
+    # ── Main LV design workbook ───────────────────────────────────────────────
     wb = openpyxl.Workbook()
-    wb.remove(wb.active)  # remove default sheet
+    wb.remove(wb.active)
 
-    build_readme(wb)
-    build_design(wb)
-    build_engine_db(wb)
-    build_vehicle_db(wb)
-    build_propellants(wb)
-    build_comparison(wb)
-
-    # Tab colors
     tab_colors = {
         "README":         "1F3864",
         "Vehicle Design": "2E7D32",
@@ -1446,21 +2024,38 @@ def main():
         "Propellants":    "00695C",
         "Comparison":     "1565C0",
     }
-    for ws in wb.worksheets:
-        if ws.title in tab_colors:
-            ws.sheet_properties.tabColor = tab_colors[ws.title]
 
-    # Derive filename from vehicle name cell (row 6, col B on Vehicle Design sheet)
-    ws_design = wb["Vehicle Design"]
-    raw_name = ws_design.cell(6, 2).value or "launch_vehicle"
-    safe_name = "".join(c if c.isalnum() or c in " _-" else "" for c in str(raw_name)).strip().replace(" ", "_")
-    output_file = f"lv_design_{safe_name}.xlsx"
+    # ── One design workbook per vehicle ───────────────────────────────────────
+    for vd in [NG_7X2_DESIGN, NG_9X4_DESIGN]:
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+        build_readme(wb)
+        build_design(wb, vd)
+        build_engine_db(wb)
+        build_vehicle_db(wb)
+        build_propellants(wb)
+        build_comparison(wb)
+        for ws in wb.worksheets:
+            if ws.title in tab_colors:
+                ws.sheet_properties.tabColor = tab_colors[ws.title]
+        raw_name  = wb["Vehicle Design"].cell(6, 2).value or "launch_vehicle"
+        safe_name = "".join(c if c.isalnum() or c in " _-" else "" for c in str(raw_name)).strip().replace(" ", "_")
+        fname = f"lv_design_{safe_name}.xlsx"
+        wb.save(fname)
+        print(f"✓ Saved: {fname}  (Engines: {len(ENGINES)}, Vehicles: {len(VEHICLES)})")
 
-    wb.save(output_file)
-    print(f"✓ Saved: {output_file}")
-    print(f"  Sheets: {[ws.title for ws in wb.worksheets]}")
-    print(f"  Engines in DB: {len(ENGINES)}")
-    print(f"  Reference vehicles: {len(VEHICLES)}")
+    # ── Payload analysis workbooks — one per vehicle config ───────────────────
+    for vcfg in [ANALYSIS_NG_BLOCK2_7X2, ANALYSIS_VULCAN_VC6,
+                 ANALYSIS_SLS_BLOCK1,     ANALYSIS_NG_9X4]:
+        wb_a = openpyxl.Workbook()
+        wb_a.remove(wb_a.active)
+        build_payload_analysis(wb_a, vcfg, PAYLOAD_BLUE_MOON_MK1)
+        wb_a.worksheets[0].sheet_properties.tabColor = "B8860B"
+        wb_a.save(vcfg["output_file"])
+        budget = compute_dv_budget(vcfg, PAYLOAD_BLUE_MOON_MK1)
+        print(f"✓ Saved: {vcfg['output_file']}"
+              f"  (total ΔV {budget['total_dv']:,.0f} m/s,"
+              f"  v_inject {budget['v_inject']:,.0f} m/s)")
 
 
 if __name__ == "__main__":
