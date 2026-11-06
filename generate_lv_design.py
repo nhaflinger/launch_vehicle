@@ -66,6 +66,7 @@ ENGINES = [
     ("BE-4",            "Vulcan / New Glenn S1", "LOX/CH4",   339, 320, 2400, 2100, 4760,134, 40.0, "Oxygen-rich staged combustion; 2x Vulcan / 7x NG 7x2 baseline"),
     ("BE-4 Block 2",    "New Glenn Block 2 S1",  "LOX/CH4",   339, 320, 2847, 2490, 4760,134, 40.0, "Upgraded BE-4 with subcooling; 2,847 kN SL (640,000 lbf); use with Subcooling Gain ~3.5%"),
     ("BE-4 Block 2 (no subcool)", "New Glenn Block 2 S1", "LOX/CH4", 339, 320, 2780, 2430, 4760,134, 40.0, "Upgraded BE-4 design improvements only, no subcooling; 2,780 kN SL (625,000 lbf); use with Subcooling Gain 0%"),
+    ("Northstar",       "New Glenn 9x4 S1",      "LOX/CH4",   339, 320, 3369, 3181, 3332,134, 40.0, "BE-4 derivative announced Nov 2026; ~715,000 lbf (3,181 kN) SL; 30% lighter than BE-4 (0.70 x 4,760 kg); Isp, Pc, expansion ratio assumed = BE-4 (not published); vac thrust scaled by Isp ratio 339/320"),
     # Hypergolic
     ("AJ-10-190",       "Orion SPS / STS OMS",   "NTO/MMH",   316, None,  27, None,  118,  9, 49.0, "Pressure-fed; restartable; long heritage"),
     ("Vikas",           "PSLV / GSLV S2",        "NTO/UDMH",  293, 270,  800,  725,  634, 58, 16.0, "Indian engine; Ariane Viking derivative"),
@@ -213,6 +214,19 @@ VEHICLES = [
         "stages": [
             ("S1 First",     "BE-4 Block 2",   9, 847000, 68000, "LOX/CH4; 9 BE-4 Block 2; 847t = 770t × 1.10; reusable"),
             ("S2 Upper",     "BE-3U Block 2",  4, 111000, 18000, "LOX/LH2; 4 BE-3U Block 2; 111t = 75t × 1.48"),
+        ],
+    },
+    {
+        "name": "New Glenn 9x4 (Northstar)", "country": "USA", "operator": "Blue Origin",
+        "first_flight": 2027, "status": "Development",
+        "payload_leo_kg": 70000, "payload_gto_kg": 14000, "payload_tli_kg": 20000,
+        "glow_kg": 1129000, "height_m": 120.0, "diameter_m": 8.7,
+        "notes": "9x4 re-estimated with 9 Northstar engines (715,000 lbf SL, 30% lighter than BE-4); "
+                 "prop masses back-solved in analyze_9x4_northstar.py to Blue Origin's 70t LEO / 20t TLI claims "
+                 "using a loss model calibrated on the 7x2 45t LEO claim; S1/S2 masses are estimates",
+        "stages": [
+            ("S1 First",     "Northstar",      9, 919000, 54400, "LOX/CH4; 9 Northstar; 919t nominal + 3.5% subcooling; dry mass back-solved; reusable"),
+            ("S2 Upper",     "BE-3U Block 2",  4, 137000, 19300, "LOX/LH2; 4 BE-3U Block 2; 137t back-solved"),
         ],
     },
     {
@@ -394,6 +408,25 @@ NG_9X4_DESIGN = {
 }
 
 
+NG_9X4_NORTHSTAR_DESIGN = {
+    # Back-solved in analyze_9x4_northstar.py to Blue Origin's 70t LEO / 20t TLI claims,
+    # with losses calibrated on the 7x2's 45t LEO claim (1750/TWR + 120 drag + 65 trajectory).
+    # ΔV fractions are set so the sheet's upper-stage ΔV equals the model's actual S2 ΔV.
+    "vehicle_name": "New Glenn 9x4 Northstar",
+    "traj_penalty":  65,
+    "s_names":       ["S1 First",     "S2 Upper",     ""],
+    "s_engines":     ["Northstar",    "BE-3U Block 2",""],
+    "s_n_eng":       [9,               4,              ""],
+    "s_prop_type":   ["LOX/CH4",       "LOX/LH2",      ""],
+    "s_prop":        [919_000,          137_000,        ""],
+    "s_subcool":     [3.5,              0.0,             0.0],
+    "s_rec_dv":      [500,              0,               0],
+    "s_atm_frac":    [0.6,              1.0,             1.0],
+    "s_leo_frac":    [0.5424,           0.4576,          ""],
+    "s_gto_frac":    [0.4564,           0.5436,          ""],
+    "s_dry_ovr":     [54_400,           19_300,          ""],
+}
+
 ANALYSIS_SLS_BLOCK1 = {
     "vehicle_name":    "SLS Block 1",
     "output_file":     "Blue_Moon_Mk1_SLS_Block1.xlsx",
@@ -444,6 +477,30 @@ ANALYSIS_NG_9X4 = {
     ],
 }
 
+
+ANALYSIS_NG_9X4_NORTHSTAR = {
+    "vehicle_name":    "New Glenn 9x4 (Northstar)",
+    "output_file":     "Blue_Moon_Mk1_NG_9x4_Northstar.xlsx",
+    # Losses calibrated on the 7x2 45t LEO claim (see analyze_9x4_northstar.py):
+    # 1750/TWR + K, K ≈ 185 m/s = 120 drag + 65 trajectory
+    "grav_loss_coeff": 1750,
+    "traj_penalty_ms": 65,
+    "drag_loss_ms":    120,
+    "stages": [
+        {
+            "name": "S1 First", "type": "standard",
+            "engine": "Northstar", "n_engines": 9,
+            "prop_mass_kg": 919_000, "subcooling_pct": 3.5,   # back-solved to 70t LEO / 20t TLI
+            "dry_mass_kg": 54_400, "rec_dv_ms": 500, "atm_fraction": 0.6,
+        },
+        {
+            "name": "S2 Upper", "type": "standard",
+            "engine": "BE-3U Block 2", "n_engines": 4,
+            "prop_mass_kg": 137_000, "subcooling_pct": 0.0,
+            "dry_mass_kg": 19_300, "rec_dv_ms": 0, "atm_fraction": 1.0,
+        },
+    ],
+}
 
 # ── Analysis helpers ───────────────────────────────────────────────────────────
 def lookup_engine(name):
@@ -2026,7 +2083,7 @@ def main():
     }
 
     # ── One design workbook per vehicle ───────────────────────────────────────
-    for vd in [NG_7X2_DESIGN, NG_9X4_DESIGN]:
+    for vd in [NG_7X2_DESIGN, NG_9X4_DESIGN, NG_9X4_NORTHSTAR_DESIGN]:
         wb = openpyxl.Workbook()
         wb.remove(wb.active)
         build_readme(wb)
@@ -2046,7 +2103,8 @@ def main():
 
     # ── Payload analysis workbooks — one per vehicle config ───────────────────
     for vcfg in [ANALYSIS_NG_BLOCK2_7X2, ANALYSIS_VULCAN_VC6,
-                 ANALYSIS_SLS_BLOCK1,     ANALYSIS_NG_9X4]:
+                 ANALYSIS_SLS_BLOCK1,     ANALYSIS_NG_9X4,
+                 ANALYSIS_NG_9X4_NORTHSTAR]:
         wb_a = openpyxl.Workbook()
         wb_a.remove(wb_a.active)
         build_payload_analysis(wb_a, vcfg, PAYLOAD_BLUE_MOON_MK1)
